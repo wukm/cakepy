@@ -1,0 +1,1 @@
+the image ret.txt was generated as simple R <= R.mean() from the script retdumb.py
