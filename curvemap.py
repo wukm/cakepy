@@ -5,6 +5,7 @@ import numpy as np
 import numpy.ma as ma
 
 from skimage.feature import hessian_matrix, hessian_matrix_eigvals
+from numpy.linalg import eig
 
 def principal_curvatures(img, sigma=1.0):
     """
@@ -94,15 +95,65 @@ def principal_curvatures(img, sigma=1.0):
         K2 = np.squeeze(K2)
 
     return K1, K2
+
+def principal_directions(img, sigma):
+    """2D only, handles masked arrays""" 
+    Hxx, Hxy, Hyy = hessian_matrix(img, sigma)
+    
+    try:
+        mask = img.mask
+    except AttributeError:
+        masked = False
+    else:
+        masked = True
+
+    dims = img.shape
+
+    # where to store
+    trailing_thetas = np.zeros_like(img)
+    leading_thetas = np.zeros_like(img)
+
+
+    # maybe implement a small angle correction
+    for i, (xx, xy, yy) in enumerate(np.nditer([Hxx, Hxy, Hyy])):
+        
+        subs = np.unravel_index(i, dims)
+        
+        # ignore masked areas (if masked array)
+        if masked and img.mask[subs]:
+            continue
+
+        h = np.array([[xx, xy], [xy, yy]]) # per-pixel hessian
+        l, v = eig(h) # eigenvectors as columns
+        
+        # reorder eigenvectors by (increasing) magnitude of eigenvalues
+        v = v[:,np.argsort(np.abs(l))]
+        
+        # angle between each eigenvector and positive x-axis
+        # arccos of first element (dot product with (1,0) and eigvec is already
+        # normalized)
+        trailing_thetas[subs] = np.arccos(v[0,0]) # first component of each
+        leading_thetas[subs] = np.arccos(v[0,1]) # first component of each
+    
+    if masked:
+        leading_thetas = ma.masked_array(leading_thetas, img.mask)
+        trailing_thetas = ma.masked_array(trailing_thetas, img.mask)
+
+
+    return trailing_thetas, leading_thetas
+
+    
+
     
 if __name__ == "__main__":
 
     
     from get_base import get_preprocessed
-    I = get_preprocessed(mode='L')
+    import matplotlib.pyplot as plt
 
-    K1, K2 = principal_curvatures(I)    
-    
-    R_B = np.abs(K1 / K2).filled(0)
-    S = np.sqrt(K1**2 + K2**2).filled(0)
+    img = get_preprocessed(mode='G')
+
+    T, L = principal_directions(img, sigma=1) 
+     
+
 

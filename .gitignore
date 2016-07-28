@@ -1,2 +1,9 @@
 # much too large
 *.pickle
+*.npy
+*.pyc
+*.swp # although these shouldn't exist anyway
+clahe_directions
+clahe_curvatures
+
+
