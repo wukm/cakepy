@@ -102,7 +102,10 @@ def vessel_filter(img, thetas, sigma, length_ratio=4, verbose=True):
 
     rect = rectangle(width, length)
     thetas = np.round(thetas*180 / np.pi)
-    thetas[thetas==180] = 0
+
+    # this should behave the same as thetas[thetas==180] = 0 but not return an
+    # error
+    thetas.put(thetas==180, 0)
 
     if verbose:
         print('running vessel_filter with σ={}: w={}, l={}'.format(
@@ -139,10 +142,10 @@ def get_targets(K1,K2):
     curvatures. return a binary filter with the conservative threshold
     of R < R_median
     """ 
-    #R = (K1 / K2) ** 2
-    R = (K1**2 + K2**2)/2
+    R = (K1 / K2) ** 2
+    #S = (K1**2 + K2**2)/2
 
-    return (R > ma.median(R)).filled(0)
+    return (R < ma.median(R)).filled(0)
 
 if __name__ == "__main__":
 
@@ -163,8 +166,7 @@ if __name__ == "__main__":
     extracted_all = np.zeros((2200,2561,len(scale_range)), dtype='uint8') 
     OUTPUT_DIR = 'scvme_output'
     SUBDIR = '_'.join((mode, 'directed',
-                        'lr={}'.format(length_ratio))
-                        )
+                        'lr={}'.format(length_ratio), 'RB'))
     if exclusivity:
         SUBDIR = '_'.join((SUBDIR, 'exclusive'))
     
