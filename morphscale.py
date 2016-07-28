@@ -12,6 +12,7 @@ import numpy.ma as ma
 
 from skimage.morphology import remove_small_holes, remove_small_objects, label
 from skimage.morphology import binary_dilation, binary_erosion
+from skimage.morphology import white_tophat, black_tophat
 from skimage.morphology import square, diamond, disk
 
 from skimage.exposure import rescale_intensity
@@ -20,9 +21,11 @@ from functools import partial
 
 MODE = 'G' # 'RGB' or 'G' or 'L'
 OUTPUT_DIR = 'RB_G/'
+VERBOSE = False
 
 
 pickles = glob('clahe_curvatures/*-{}.pickle'.format(MODE))
+#pickles = ['clahe_curvatures/K-0500-G.pickle']
 
 # combine all candidates (unsafely specify exact size :< )
 cumulative = np.zeros((2200,2561))
@@ -35,11 +38,13 @@ for n, pick in enumerate(sorted(pickles), 1):
 
     with open(pick, 'rb') as f:
         p = pickle.load(f)
-    
+
     K1 = p['K1']
     K2 = p['K2']
     sigma = p['sigma']
     
+    if sigma > 5:
+        continue
     # get 'structureness' for each channel at each pixel
     R = (K1 / K2)**2 
     S = K1**2 + K2**2 
@@ -51,11 +56,11 @@ for n, pick in enumerate(sorted(pickles), 1):
     # erode based on scale space
     erode_selem = disk(sigma+1)
     dilate_selem = disk(max(sigma-1, 1))
-    min_size = dilate_selem.sum()*3
+    min_size = dilate_selem.sum()*2
 
     targets = binary_erosion(targets, selem=erode_selem)
-    targets = binary_dilation(targets, selem=dilate_selem)
-     
+    #targets = binary_dilation(targets, selem=dilate_selem)
+    targets = white_tophat(targets, selem=disk(sigma))
 
     labeled, n_labels = label(targets, background=0,
                                 connectivity=1, return_num=True)
@@ -80,8 +85,10 @@ for n, pick in enumerate(sorted(pickles), 1):
     print('----------------\n',
           'for σ={},'.format(sigma),
           'there are {} 4-connected components.'.format(n_labels),
-          'showing largest {}.'.format(N),
-          '\n R_B stats:',
+          'showing largest {}.'.format(N))
+    if VERBOSE:
+        print(
+          'R_B stats:',
           '\n\tmean:', R.mean(),
           '\n\tmedian:', R_thresh, '(threshold)',
           '\n R_A stats:',
@@ -101,14 +108,16 @@ for n, pick in enumerate(sorted(pickles), 1):
     cumulative += candidates
     cumulative_all += (targets != 0).astype('uint8')
 else:
-    plt.imsave(os.path.join(OUTPUT_DIR, 'cumulative.png'),
-                cumulative, cmap=plt.cm.Blues) 
+    if len(pickles) > 1:
 
-    plt.imsave(os.path.join(OUTPUT_DIR, 'cumulative_binary.png'),
-                cumulative != 0, cmap=plt.cm.Blues) 
+        plt.imsave(os.path.join(OUTPUT_DIR, 'cumulative.png'),
+                    cumulative, cmap=plt.cm.Blues) 
 
-    plt.imsave(os.path.join(OUTPUT_DIR, 'cumulative_all.png'),
-                cumulative_all,  cmap=plt.cm.Blues) 
+        plt.imsave(os.path.join(OUTPUT_DIR, 'cumulative_binary.png'),
+                    cumulative != 0, cmap=plt.cm.Blues) 
 
-    plt.imsave(os.path.join(OUTPUT_DIR, 'cumulative_all_binary.png'),
-                cumulative_all != 0,  cmap=plt.cm.Blues) 
+        plt.imsave(os.path.join(OUTPUT_DIR, 'cumulative_all.png'),
+                    cumulative_all,  cmap=plt.cm.Blues) 
+
+        plt.imsave(os.path.join(OUTPUT_DIR, 'cumulative_all_binary.png'),
+                    cumulative_all != 0,  cmap=plt.cm.Blues) 

@@ -32,6 +32,14 @@ def get_bg_mask(img):
 
     return bg_mask
 
+
+def get_trace():
+
+    t = ndi.imread('samples/trace.png', 'L');
+    t = t.astype('bool')
+
+    return np.invert(t)
+
 def get_masked_raw(mode='RGB'):
     
     if mode == 'G':
