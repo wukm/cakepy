@@ -96,31 +96,40 @@ def vessel_filter(img, thetas, sigma, length_ratio=4, verbose=True):
         furthermore, this filter should be used carefully. there are probably
         bugs in the logic and implementation.
     """
+    mask = img.mask
     extracted = np.zeros_like(img)
+    img = binary_erosion(img, selem=disk(sigma))
+    #img = remove_small_objects(img, min_size=sigma**3)
+    img = binary_dilation(img, selem=disk(sigma))
 
-    width, length = int(2*sigma), int(2*sigma*length_ratio)
+
+    width, length = int(2*sigma), int(sigma*length_ratio)
 
     rect = rectangle(width, length)
+    outer_rect =  rectangle(width+2*sigma+4,length)
+    outer_rect[sigma:-sigma,:] = 0
     thetas = np.round(thetas*180 / np.pi)
 
-    # this should behave the same as thetas[thetas==180] = 0 but not return an
-    # error
-    thetas.put(thetas==180, 0)
+    # this should behave the same as thetas[thetas==180] = 0
+    # but not return a warning
+    thetas.put(thetas==180, 0) # these angles are redundant
 
     if verbose:
         print('running vessel_filter with σ={}: w={}, l={}'.format(
-            sigma, width,length), end='\t', flush=True)
-
-    #if verbose:
-    #    print('θ', end=' ', flush=True)
+            sigma, width,length), flush=True)
 
     if verbose:
         print('building rotated filters...', end=' ')
+
     srot = partial(rotate, resize=True, preserve_range=True) # look at order
     rotated = [srot(rect, theta) for theta in range(180)]
     
     if verbose:
         print('done.')
+    
+    if verbose:
+        print('building outer filters...', end=' ')
+    outer_rotated = [srot(outer_rect, theta) for theta in range(180)]
 
     for theta in range(180):
         if verbose:
@@ -129,44 +138,69 @@ def vessel_filter(img, thetas, sigma, length_ratio=4, verbose=True):
                 print()
 
         vessels = binary_erosion(img, selem=rotated[theta])
-        #vessels = binary_opening(img, selem=rotated[theta])
+        #margins = binary_dilation(img, selem=outer_rotated[theta])
+        #margins = np.invert(margins)
+        #vessels = np.logical_and(vessels, margins)
         extracted = np.logical_or(extracted, (thetas == theta) * vessels) 
     if verbose:
         print('') # new line
     
+    extracted = binary_dilation(extracted, selem=disk(sigma))
+    extracted[mask] = 0
     return extracted
 
-def get_targets(K1,K2):
+def get_targets(K1,K2, method='R'):
     """
     calculate the frangi 'blobness' measure R for the given principal
     curvatures. return a binary filter with the conservative threshold
     of R < R_median
-    """ 
-    R = (K1 / K2) ** 2
-    #S = (K1**2 + K2**2)/2
 
-    return (R < ma.median(R)).filled(0)
+    method is
+    R for (K1 / K2) ** 2
+    S for (K1**2 + K2**2)/2
+    and F for frangi
+    """ 
+    if method == 'R':
+        R = (K1 / K2) ** 2
+        T = R < ma.median(R)
+    elif method == 'S': 
+        S = (K1**2 + K2**2)/2
+        T = S > ma.median(S)
+    elif method == 'F':
+        R = (K1 / K2) ** 2
+        S = (K1**2 + K2**2)/2
+        beta, c = 0.5, 15
+        F = np.exp(-R / (2*beta**2))
+        F *= 1 - np.exp(-S / (2*c**2))
+        T = (K2 < 0)*F
+        T = T > (T[T != 0]).mean()
+    else:
+        raise('Need to select method as "F", "S", or "R"')
+    
+    return T
 
 if __name__ == "__main__":
+    
+    from score import confusion
 
     b = partial(plt.imshow, cmap=plt.cm.Blues)
     s = plt.show
 
 
     mode = 'G'
+    method = 'F'
 
     # make true if you want to restrict each filter to unextracted targets only 
     exclusivity = False
 
-    scale_range = list(range(19,1,-1))
+    scale_range = list(range(10,1,-1))
 
     length_ratio = .5
 
     cumulative = np.zeros((2200,2561), dtype='uint8')
-    extracted_all = np.zeros((2200,2561,len(scale_range)), dtype='uint8') 
+    extracted_all = np.zeros((2200,2561,len(scale_range)), dtype='bool') 
     OUTPUT_DIR = 'scvme_output'
-    SUBDIR = '_'.join((mode, 'directed',
-                        'lr={}'.format(length_ratio), 'RB'))
+    SUBDIR = '_'.join((mode, 'directed', method))
     if exclusivity:
         SUBDIR = '_'.join((SUBDIR, 'exclusive'))
     
@@ -190,24 +224,24 @@ if __name__ == "__main__":
 
         K1, K2, L, T = load_principal_data(sigma, mode)
         
-        targets = get_targets(K1,K2)
+        targets = get_targets(K1,K2,method='F')
         
         savefile = ''.join(('%02d' % sigma, '-raw.png'))
-        plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, savefile), targets*L,
-                cmap=plt.cm.spectral)
+        plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, savefile),
+                targets*L, cmap=plt.cm.spectral)
 
         if exclusivity:
             # remove any previously extracted vessels from consideration
             targets[cumulative.nonzero()] = False
 
         extracted = vessel_filter(targets, L, sigma, length_ratio)
-        extracted_all[:,:,n] = extracted.filled(0)
+        extracted_all[:,:,n] = extracted
         savefile = ''.join(('%02d' % sigma, '.png'))
         plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, savefile),
-                extracted.filled(0), cmap=plt.cm.Blues)
+                extracted, cmap=plt.cm.Blues)
         
         # label regions with this sigma in the cumulative map, but only where no label exists
-        new_labels = sigma*np.logical_and(extracted != 0, cumulative == 0).filled(0)
+        new_labels = sigma*np.logical_and(extracted != 0, cumulative == 0)
         cumulative += new_labels.astype('uint8')
           
 
@@ -225,3 +259,15 @@ if __name__ == "__main__":
     plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'cumulative.png'), c_img)
     plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'cumulative_binary.png'),
                                 cumulative!=0, cmap=plt.cm.Blues)
+
+    C = confusion(cumulative!=0)
+    plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'confusion.png'), C)
+
+    
+    skel = skeletonize(cumulative!=0)
+    skel = remove_small_objects(skel, min_size=50,
+                            connectivity=2)
+    plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'small_skel.png'),
+                                    skel, cmap=plt.cm.Blues)
+
+
