@@ -7,6 +7,8 @@ arguments based on principal direction
 
 import os
 import os.path
+import datetime
+
 from sys import exit
 
 import pickle
@@ -23,6 +25,7 @@ from skimage.exposure import rescale_intensity
 
 from skimage.color import label2rgb
 from functools import partial
+
 
 def load_principal_data(sigma, mode='G'):
     """ 
@@ -120,6 +123,9 @@ def vessel_filter(img, thetas, sigma, length_ratio=4, verbose=True):
 
     width, length = int(2*sigma), int(sigma*length_ratio)
 
+    if length == 0:
+        length = 1
+
     rect = rectangle(width, length)
     outer_rect =  rectangle(width+2*sigma+4,length)
     outer_rect[sigma:-sigma,:] = 0
@@ -205,7 +211,7 @@ if __name__ == "__main__":
     # make true if you want to restrict each filter to unextracted targets only 
     exclusivity = False
 
-    scale_range = list(range(10,1,-1))
+    scale_range = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
 
     length_ratio = .5
 
@@ -217,6 +223,10 @@ if __name__ == "__main__":
     if exclusivity:
         SUBDIR = '_'.join((SUBDIR, 'exclusive'))
     
+    n = datetime.datetime.now()
+
+    SUBDIR = ''.join((SUBDIR, n.strftime('%y%m%d_%H%M')))
+
     print('saving outputs in', os.path.join(OUTPUT_DIR, SUBDIR))
 
     try:
@@ -276,7 +286,8 @@ if __name__ == "__main__":
     C = confusion(cumulative!=0)
     plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'confusion.png'), C)
 
-    
+    print('calculating basic skeleton and reduced skeleton') 
+
     full_skel = skeletonize(cumulative!=0)
     plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'full_skel.png'),
                                     full_skel, cmap=plt.cm.Blues)
@@ -285,20 +296,29 @@ if __name__ == "__main__":
     plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'small_skel.png'),
                                     skel, cmap=plt.cm.Blues)
     
+    print('trimming cumulative map to the reduced skeleton', end=' ', flush=True)
     matched_all = np.zeros_like(skel)
+
     for i, scale in enumerate(scale_range):
+
+        print('σ', end=' ', flush=True)
         e = extracted_all[:,:,i]
         el, nl = label(e, return_num=True)
         matched = np.zeros_like(matched_all)
 
         for region in range(1, nl+1):
-            if (np.logical_and(el==region, skel).any():
+            if np.logical_and(el==region, skel).any():
                 matched = np.logical_or(matched, el==region)
         
         matched_all = np.logical_or(matched_all, matched)
 
+    print('\nsaving it all!')
     plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'on_skel.png'),
                                     matched_all, cmap=plt.cm.Blues)
 
     plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'on_skel_confusion.png'),
                                     confusion(matched_all))
+    
+    c_img2 = label2rgb(cumulative*matched_all, bg_label=0)
+
+    plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'on_skel_labeled.png'), c_img2)
