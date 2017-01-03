@@ -15,7 +15,8 @@ import matplotlib.pyplot as plt
 
 MODE = 'G'
 SIGMAS = list(range(1,20))
-DATADIR = 'clahe_directions'
+DATADIR = os.path.join('clahe_directions', 'newb')
+IMAGEFILE = 'samples/newb.jpg'
 
 
 print('pickling principal directions for mode={}'.format(MODE),
@@ -24,7 +25,7 @@ print('\tσ=', SIGMAS)
 print('\tand saving in directory:', './'+DATADIR)
 print()
 
-I = get_preprocessed(mode=MODE)
+I = get_preprocessed(IMAGEFILE, mode=MODE)
 
 for sigma in SIGMAS:
     

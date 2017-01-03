@@ -33,21 +33,26 @@ def get_bg_mask(img):
     return bg_mask
 
 
-def get_trace():
-
-    t = ndi.imread('samples/trace.png', 'L');
+def get_trace(tracefile=None):
+    
+    if tracefile is None:
+        tracefile = 'samples/trace.png'
+    t = ndi.imread(tracefile, 'L');
     t = t.astype('bool')
 
     return np.invert(t)
 
-def get_masked_raw(mode='RGB'):
+def get_masked_raw(imgfile=None, mode='RGB'):
     
     if mode == 'G':
         readmode = 'RGB'
     else:
         readmode = mode
+    
+    if imgfile is None:
+        imgfile = 'samples/raw.png'
 
-    img = ndi.imread('samples/raw.png', mode=readmode)
+    img = ndi.imread(imgfile, mode=readmode)
     
     if mode == 'G':
         img = img[:,:,1] # green channel only (disregard rest)
@@ -81,9 +86,9 @@ def preprocess(img):
 
     return I
 
-def get_preprocessed(mode='L'):
+def get_preprocessed(imgfile=None, mode='L'):
     
-    img = get_masked_raw(mode=mode)
+    img = get_masked_raw(imgfile, mode=mode)
     I = preprocess(img)
     return I
 

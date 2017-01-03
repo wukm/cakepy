@@ -170,20 +170,26 @@ def vessel_filter(img, thetas, sigma, length_ratio=4, verbose=True):
     extracted[mask] = 0
     return extracted
 
-def get_targets(K1,K2, method='F'):
+def get_targets(K1,K2, method='F', threshold=True):
     """
     returns a binary threshold (conservative)
 
-    F -> frangi filter with default arguments
-    R -> blobness measure
+    F -> frangi filter with default arguments. greater than mean.
+    R -> blobness measure. greater than median.
     S -> anisotropy measure (greater than median)
     """ 
     if method == 'R':
         R = (K1 / K2) ** 2
-        T = R < ma.median(R)
+        if threshold:
+            T = R < ma.median(R)
+        else:
+            T = R
     elif method == 'S': 
         S = (K1**2 + K2**2)/2
-        T = S > ma.median(S)
+        if threshold:
+            T = S > ma.median(S)
+        else:
+            T = S
     elif method == 'F':
         R = (K1 / K2) ** 2
         S = (K1**2 + K2**2)/2
@@ -191,7 +197,8 @@ def get_targets(K1,K2, method='F'):
         F = np.exp(-R / (2*beta**2))
         F *= 1 - np.exp(-S / (2*c**2))
         T = (K2 < 0)*F
-        T = T > (T[T != 0]).mean()
+        if threshold:
+            T = T > (T[T != 0]).mean()
     else:
         raise('Need to select method as "F", "S", or "R"')
     
@@ -291,6 +298,7 @@ if __name__ == "__main__":
     full_skel = skeletonize(cumulative!=0)
     plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'full_skel.png'),
                                     full_skel, cmap=plt.cm.Blues)
+    # get rid of small blobs that still exist :<
     skel = remove_small_objects(full_skel, min_size=50,
                             connectivity=2)
     plt.imsave(os.path.join(OUTPUT_DIR, SUBDIR, 'small_skel.png'),
@@ -299,6 +307,9 @@ if __name__ == "__main__":
     print('trimming cumulative map to the reduced skeleton', end=' ', flush=True)
     matched_all = np.zeros_like(skel)
 
+    # in each scale, look at all connected regions and add them to the skeleton
+    # if it's connected to the skeleton. each scale has to be connected to the
+    # skeleton itself (the layers don't interact with each other)
     for i, scale in enumerate(scale_range):
 
         print('σ', end=' ', flush=True)

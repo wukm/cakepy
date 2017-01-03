@@ -6,8 +6,12 @@ import numpy.ma as ma
 
 from skimage.feature import hessian_matrix, hessian_matrix_eigvals
 from numpy.linalg import eig
+from functools import partial
 
-def principal_curvatures(img, sigma=1.0):
+from hfft import fft_hessian
+
+
+def principal_curvatures(img, sigma=1.0, H=None):
     """
     Return the principal curvatures {κ1, κ2} of an image, that is, the
     eigenvalues of the Hessian at each point (x,y). The output is arranged such
@@ -26,9 +30,7 @@ def principal_curvatures(img, sigma=1.0):
 
         sigma:  (optional) The scale at which the Hessian is calculated.
         
-        signed: (bool) Whether to return signed principal curvatures or simply
-                magnitudes.
-
+        H:      (optional) provide sigma (else it will be calculated)
     Output:
         
         (K1, K2):   A tuple where K1, K2 each are the exact dimension of the
@@ -63,7 +65,8 @@ def principal_curvatures(img, sigma=1.0):
         channel = img[:,:,ic]
 
         # returns the tuple (Hxx, Hxy, Hyy)
-        H = hessian_matrix(channel, sigma=sigma)
+        if H is None:
+            H = hessian_matrix(channel, sigma=sigma)
         
         # returns tuple (l1,l2) where l1 >= l2 but this *includes sign*
         L = hessian_matrix_eigvals(*H)
@@ -96,10 +99,21 @@ def principal_curvatures(img, sigma=1.0):
 
     return K1, K2
 
-def principal_directions(img, sigma):
-    """2D only, handles masked arrays""" 
-    Hxx, Hxy, Hyy = hessian_matrix(img, sigma)
+def principal_directions(img, sigma, H=None):
+    """
+    will ignore calculation of principal directions of masked areas
+
+    despite the name, this function actually returns the theta corresponding to
+    leading and trailing principal directions, i.e. angle w / x axis
+    """
+
+    if H is None:
+        H = hessian_matrix(img, sigma)
+
+    Hxx, Hxy, Hyy = H
     
+
+    # check if input image is masked
     try:
         mask = img.mask
     except AttributeError:
@@ -117,6 +131,7 @@ def principal_directions(img, sigma):
     # maybe implement a small angle correction
     for i, (xx, xy, yy) in enumerate(np.nditer([Hxx, Hxy, Hyy])):
         
+        # grab the (x,y) coordinate of the hxx, hxy, hyy you're using
         subs = np.unravel_index(i, dims)
         
         # ignore masked areas (if masked array)
@@ -136,8 +151,8 @@ def principal_directions(img, sigma):
         leading_thetas[subs] = np.arccos(v[0,1]) # first component of each
     
     if masked:
-        leading_thetas = ma.masked_array(leading_thetas, img.mask)
-        trailing_thetas = ma.masked_array(trailing_thetas, img.mask)
+        leading_thetas = ma.masked_array(leading_thetas, mask)
+        trailing_thetas = ma.masked_array(trailing_thetas, mask)
 
 
     return trailing_thetas, leading_thetas
@@ -150,10 +165,77 @@ if __name__ == "__main__":
     
     from get_base import get_preprocessed
     import matplotlib.pyplot as plt
+    from functools import partial
+    from fpd import get_targets
+    b = partial(plt.imshow, cmap=plt.cm.Blues) 
+    sp = partial(plt.imshow, cmap=plt.cm.spectral) 
+    s = plt.show
+    
+    import time 
 
     img = get_preprocessed(mode='G')
+    
+    for sigma in [0.5, 1, 2, 3, 5, 10]:
 
-    T, L = principal_directions(img, sigma=1) 
-     
+        print('-'*80)
+        print('σ=',sigma)
+        print('calculating hessian H')
 
+        tic = time.time()
+        H = hessian_matrix(img, sigma=sigma)
 
+        toc = time.time()
+        print('time elapsed: ', toc - tic)
+        tic = time.time()
+        print('calculating hessian via FFT (F)')
+        h = fft_hessian(img, sigma)
+        
+        toc = time.time()
+        print('time elapsed: ', toc - tic)
+        tic = time.time()
+        print('calculating principal curvatures for σ={}'.format(sigma))
+        K1,K2 = principal_curvatures(img, sigma=sigma, H=H)
+        toc = time.time()
+        print('time elapsed: ', toc - tic)
+        tic = time.time()
+        print('calculating principal curvatures for σ={} (fast)'.format(sigma))
+        k1,k2 = principal_curvatures(img, sigma=sigma, H=h)
+
+        toc = time.time()
+        print('time elapsed: ', toc - tic)
+        tic = time.time()
+        
+        #####
+
+        print('calculating targets for σ={}'.format(sigma))
+        T = get_targets(K1,K2, threshold=False) 
+
+        toc = time.time()
+        print('time elapsed: ', toc - tic)
+        tic = time.time()
+
+        print('calculating targets for σ={} (fast)'.format(sigma))
+        t = get_targets(k1,k2, threshold=False) 
+
+        toc = time.time()
+        print('time elapsed: ', toc - tic)
+        
+        ###### 
+        
+        print('extending masks')
+        
+        # extend mask over nontargets items
+        img1 = ma.masked_where( T < T.mean(), img)
+        img2 = ma.masked_where( t < t.mean(), img)
+
+        tic = time.time()
+        print('calculating principal directions for σ={}'.format(sigma))
+        T1,T2 = principal_directions(img1, sigma=sigma, H=H)
+        toc = time.time()
+        print('time elapsed: ', toc - tic)
+        tic = time.time()
+
+        print('calculating principal directions for σ={} (fast)'.format(sigma))
+        t1,t2 = principal_directions(img2, sigma=sigma, H=h)
+        toc = time.time()
+        print('time elapsed: ', toc - tic)
